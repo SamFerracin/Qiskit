@@ -4407,6 +4407,33 @@ class QuantumCircuit:
             return self._current_scope().append(
                 CircuitInstruction(Barrier(len(qubits), label=label), qubits, ())
             )
+        
+    def block(self, circuit: QuantumCircuit, qargs: Optional[list[QubitSpecifier]] = None) -> InstructionSet:
+        from .block import CircuitBlock
+
+        # This uses a `dict` not a `set` to guarantee a deterministic order to the arguments.
+        qubits = tuple(
+            {q: None for qarg in qargs for q in self._qbit_argument_conversion(qarg)}
+        )
+        
+        return self.append(CircuitBlock(circuit), qubits)
+    
+    def unravel_blocks(self):
+        ret = QuantumCircuit(*self.qregs, *self.cregs)
+        for instruction in self:
+            op = instruction.operation
+            qubits = instruction.qubits
+            clbits = instruction.clbits
+            
+            if op.name == "block":
+                circuit = op.circuit
+                for block_instruction in op.circuit:
+                    indices = [circuit.qubits.index(q) for q in block_instruction.qubits]
+                    ret.append(block_instruction.operation, [qubits[i] for i in indices])
+            else:
+                ret.append(op, qubits, clbits)
+
+        return ret
 
     def delay(
         self,

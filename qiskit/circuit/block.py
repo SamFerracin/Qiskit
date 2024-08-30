@@ -26,42 +26,21 @@ from qiskit.circuit.parameterexpression import ParameterExpression
 
 class CircuitBlock(Instruction):
     """A container for an isolated block of operations in a larger circuit.
-
-    This is roughly equivalent to a qiskit ``CircuitOperation`` but on abstract qubit
-    indices instead of specific qubit objects in a QuantumCircuits quantum registers.
-
-    It is intended to store sub-circuits from a larger circuit to enable hashing
-    and equivalency comparison.
-
-    .. note::
-
-        The circuit contained in this block is assumed to be immutable. If it is
-        modified in anyway it will invalidate the use of this block for equivalence
-        checking.
+    
+    Args:
+        circuit: A quantum circuit containing all the operations in the block.
+        label: A label.
     """
 
-    def __init__(
-        self, circuit: QuantumCircuit, qubits: Optional[Sequence[int]] = None, label: str = ""
-    ):
-        """Initialize a circuit block.
-
-        Args:
-            circuit: A quantum circuit.
-            qubits: The physical qubit indices corresponding to the circuit's abstract qubits. If
-                ``None``, it is set to ``range(circuit.num_qubits)``.
-        """
+    def __init__(self, circuit: QuantumCircuit, label: str = ""):
         self._circuit = circuit
-        self._qubits = tuple(qubits if qubits else range(circuit.num_qubits))
-
-        if self.circuit.num_qubits != len(self.qubits):
-            raise ValueError("Input circuit and qubits have different number of qubits.")
 
         super().__init__(
             "block",
             self.circuit.num_qubits,
             self.circuit.num_clbits,
             params=self.circuit.parameters,
-            label=label
+            label=label,
         )
 
     @property
@@ -70,10 +49,6 @@ class CircuitBlock(Instruction):
         The circuit in this block.
         """
         return self._circuit
-
-    @property
-    def qubits(self) -> Tuple[int]:
-        r"""
-        The physical qubit indices corresponding to the ``circuit``'s abstract qubits.
-        """
-        return self._qubits
+    
+    def draw(self):
+        return self.circuit.draw()
