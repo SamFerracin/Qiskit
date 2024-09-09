@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping as _Mapping
 from functools import lru_cache
-from typing import Union, Mapping, overload
+from typing import Union, Mapping, Tuple, Sequence, overload
 from numbers import Complex
 
 import numpy as np
@@ -39,8 +39,19 @@ ObservableLike = Union[
     Pauli,
     SparsePauliOp,
     Mapping[Union[str, Pauli], float],
+    Tuple[Union[str, Pauli, SparsePauliOp], Sequence[int], int],
 ]
-"""Types that can be natively used to construct a Hermitian Estimator observable."""
+"""Types that can be natively used to construct a Hermitian Estimator observable.
+
+The following formats are allowed:
+- A string, e.g. "XlXZO+".
+- A :class:`.Pauli` or a :class:`.SparsePauliOp` object.
+- A map between Paulis and floats, where each float represents the weight of the
+  corresponding pauli, e.g. ``{"ZI": 0.5, "IZ": 0.5}``.
+- A tuple of the type ``(pauli, indices, num_qubits)`` representing a Pauli with support on a
+  subset of qubits. For example, ``(XYZ, [0, 2, 4], 6)`` is equivalent to the six-qubit Pauli
+  ``IIXIYIZ``.
+"""
 
 
 ObservablesArrayLike = Union[ObservableLike, ArrayLike]
@@ -75,6 +86,11 @@ class ObservablesArray(ShapedMixin):
         super().__init__()
         if isinstance(observables, ObservablesArray):
             observables = observables._array
+        if isinstance(observables, Sequence) and len(observables) == 3:
+            # Special handling of observable with support on a subset of qubits.
+            # They need to turned into a tuple before passing it to `object_array`
+            # TODO: Can this be avoided?
+            observables = (observables[0], tuple(observables[1]), observables[2])
         self._array = object_array(observables, copy=copy, list_types=(PauliList,))
         self._shape = self._array.shape
         if validate:
@@ -215,6 +231,35 @@ class ObservablesArray(ShapedMixin):
                     )
                 unique[basis] += coeff
             return dict(unique)
+        
+        # Tuple conversion, performed by inserting identities and calling `coerce_observable` on
+        # the resulting SparsePauliOp
+        if isinstance(observable, Tuple):
+            if len(observable) != 3:
+                raise ValueError("Incorrect length.")
+            
+            obs = observable[0]
+            indices = observable[1]
+            num_qubits = observable[2]
+
+            # Turn `obs` into a SparsePauliOp
+            if isinstance(obs, str):
+                obs = Pauli(obs)
+            if isinstance(obs, Pauli):
+                obs = SparsePauliOp(obs)  
+            if not isinstance(obs, SparsePauliOp):
+                raise ValueError("Failed to coerce tuple into `SparsePauliOp`.")
+
+            if obs.num_qubits != len(indices):
+                raise ValueError(f"Expected {obs.num_qubits} indices, found {len(indices)}.")
+            if obs.num_qubits > num_qubits:
+                raise ValueError(f"Invalid number of qubits.")
+
+            new_paulis = []
+            for pauli in obs.paulis:
+                pos = [p for p in range(num_qubits) if p not in indices]
+                new_paulis.append(pauli.insert(pos, Pauli("I" * len(pos))))
+            return cls.coerce_observable(SparsePauliOp(new_paulis, obs.coeffs))
 
         raise TypeError(f"Invalid observable type: {type(observable)}")
 
